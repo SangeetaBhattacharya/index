@@ -113,6 +113,18 @@
   </div>
 
   <div class="card">
+  <h2>Latest Reading</h2>
+
+  <p><strong>Timestamp:</strong> <span id="latestTimestamp">-</span></p>
+  <p><strong>Volume:</strong> <span id="latestVolume">-</span> mL</p>
+  <p><strong>Pulses:</strong> <span id="latestPulses">-</span></p>
+  <p><strong>Turbidity Raw:</strong> <span id="latestRaw">-</span></p>
+  <p><strong>Vout:</strong> <span id="latestVout">-</span></p>
+  <p><strong>Vin:</strong> <span id="latestVin">-</span></p>
+  <p><strong>Status:</strong> <span id="latestStatus">-</span></p>
+</div>
+  
+  <div class="card">
     <h2>Sensor Readings</h2>
 
     <div class="table-wrap">
@@ -297,11 +309,23 @@
         clarity
       ]);
 
+      updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity);
+      
       addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity);
-
+      
       document.getElementById("count").textContent = csvRows.length - 1;
     }
 
+    function updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity) {
+      document.getElementById("latestTimestamp").textContent = timestamp;
+      document.getElementById("latestVolume").textContent = volume;
+      document.getElementById("latestPulses").textContent = pulses;
+      document.getElementById("latestRaw").textContent = raw;
+      document.getElementById("latestVout").textContent = vout;
+      document.getElementById("latestVin").textContent = vin;
+      document.getElementById("latestStatus").textContent = clarity;
+    }
+    
     function addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity) {
       const tableBody = document.getElementById("tableBody");
       const tr = document.createElement("tr");
