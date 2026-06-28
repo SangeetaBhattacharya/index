@@ -150,6 +150,11 @@
     let port = null;
     let reader = null;
     let keepReading = false;
+    let lastSavedVolume = "";
+    let lastSavedPulses = "";
+    let lastSavedStatus = "";
+    let lastSavedRaw = "";
+    let rawTolerance = 5;   // ignore small turbidity raw changes
     let lastSensorData = "";
 
     let csvRows = [
@@ -297,23 +302,43 @@
         return;
       }
 
-      const timestamp = new Date().toLocaleString();
+      // Check if this is really a new sensor reading
+const rawDifference = Math.abs(Number(raw) - Number(lastSavedRaw));
 
-      csvRows.push([
-        timestamp,
-        volume,
-        pulses,
-        raw,
-        vout,
-        vin,
-        clarity
-      ]);
+const sameAsLast =
+  volume === lastSavedVolume &&
+  pulses === lastSavedPulses &&
+  clarity === lastSavedStatus &&
+  rawDifference <= rawTolerance;
 
-      updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity);
-      
-      addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity);
-      
-      document.getElementById("count").textContent = csvRows.length - 1;
+// If only timestamp or small turbidity raw noise changes, do not update table/latest reading
+if (sameAsLast) {
+  return;
+}
+
+// New accepted sensor data
+    const timestamp = new Date().toLocaleString();
+    
+    lastSavedVolume = volume;
+    lastSavedPulses = pulses;
+    lastSavedStatus = clarity;
+    lastSavedRaw = raw;
+    
+    csvRows.push([
+      timestamp,
+      volume,
+      pulses,
+      raw,
+      vout,
+      vin,
+      clarity
+    ]);
+    
+    updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity);
+    
+    addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity);
+    
+    document.getElementById("count").textContent = csvRows.length - 1;
     }
 
     function updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity) {
