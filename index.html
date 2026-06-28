@@ -21,46 +21,27 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
 
-    .row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: end;
-    }
-
-    label {
-      display: block;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-
-    input {
-      padding: 9px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-    }
-
-    button,
-    a.button {
+    button {
       padding: 10px 14px;
+      margin-right: 8px;
+      margin-bottom: 8px;
       border: 0;
       border-radius: 6px;
       cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
+      font-weight: bold;
     }
 
-    .start {
+    .connect {
       background: #0b7;
       color: white;
     }
 
-    .stop {
+    .disconnect {
       background: #c33;
       color: white;
     }
 
-    .export {
+    .download {
       background: #246;
       color: white;
     }
@@ -74,18 +55,30 @@
       font-weight: bold;
     }
 
+    .last-line {
+      font-family: Consolas, monospace;
+      background: #eee;
+      padding: 8px;
+      border-radius: 6px;
+      min-height: 22px;
+    }
+
+    .error {
+      color: #c33;
+      font-weight: bold;
+    }
+
     table {
       border-collapse: collapse;
       width: 100%;
       background: white;
     }
 
-    th,
-    td {
-      border-bottom: 1px solid #e2e2e2;
+    th, td {
+      border-bottom: 1px solid #ddd;
       padding: 8px;
-      text-align: left;
       font-size: 14px;
+      text-align: left;
     }
 
     th {
@@ -98,21 +91,6 @@
       max-height: 520px;
       overflow: auto;
     }
-
-    .muted {
-      color: #666;
-    }
-
-    .error {
-      color: #c33;
-    }
-
-    .last-line {
-      font-family: Consolas, monospace;
-      background: #f0f0f0;
-      padding: 8px;
-      border-radius: 6px;
-    }
   </style>
 </head>
 
@@ -120,130 +98,269 @@
   <h1>Nesso N1 Sensor Logger</h1>
 
   <div class="card">
-    <form class="row" method="post" action="/start">
-      <div>
-        <label for="port">Serial port</label>
-        <input id="port" name="port" value="COM3">
-      </div>
+    <button class="connect" onclick="connectSerial()">Connect Serial</button>
+    <button class="disconnect" onclick="disconnectSerial()">Disconnect</button>
+    <button class="download" onclick="downloadCSV()">Download CSV</button>
+    <button class="clear" onclick="clearTable()">Clear Table</button>
 
-      <div>
-        <label for="baud">Baud rate</label>
-        <input id="baud" name="baud" value="115200">
-      </div>
+    <p>Status: <span id="status" class="status">Not connected</span></p>
+    <p>Total readings: <span id="count">0</span></p>
 
-      <button class="start" type="submit">Start logging</button>
-    </form>
-
-    <form method="post" action="/stop" style="display:inline-block; margin-top: 12px;">
-      <button class="stop" type="submit">Stop logging</button>
-    </form>
-
-    <a class="button export" href="/export">Download CSV</a>
-
-    <form method="post" action="/clear" style="display:inline-block;" onsubmit="return confirm('Clear all saved readings?');">
-      <button class="clear" type="submit">Clear table</button>
-    </form>
-  </div>
-
-  <div class="card">
-    <p>Status: <span id="running" class="status">Loading...</span></p>
-
-    <p class="muted">
-      Port: <span id="portText"></span> |
-      Baud: <span id="baudText"></span> |
-      Started: <span id="startedAt"></span>
-    </p>
-
-    <p>Last line received:</p>
+    <p><strong>Last line received:</strong></p>
     <div id="lastLine" class="last-line">Waiting...</div>
 
-    <p id="lastError" class="error"></p>
+    <p id="errorMessage" class="error"></p>
   </div>
 
   <div class="card">
-    <h2>Saved readings</h2>
+    <h2>Sensor Readings</h2>
 
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>ID</th>
-            <th>Received at</th>
-            <th>Time ms</th>
+            <th>Timestamp</th>
             <th>Volume mL</th>
             <th>Pulses</th>
-            <th>Turbidity raw</th>
+            <th>Turbidity Raw</th>
             <th>Vout</th>
             <th>Vin</th>
             <th>Status</th>
           </tr>
         </thead>
 
-        <tbody id="readingsBody"></tbody>
+        <tbody id="tableBody"></tbody>
       </table>
     </div>
   </div>
 
   <script>
-    async function loadStatus() {
-      const response = await fetch('/api/status');
-      const status = await response.json();
+    let port = null;
+    let reader = null;
+    let keepReading = false;
 
-      document.getElementById('running').textContent =
-        status.running ? 'Logging' : 'Stopped';
+    let csvRows = [
+      ["timestamp", "volume_ml", "pulses", "turbidity_raw", "vout", "vin", "status"]
+    ];
 
-      document.getElementById('running').style.color =
-        status.running ? '#0a7' : '#c33';
-
-      document.getElementById('portText').textContent =
-        status.port || '-';
-
-      document.getElementById('baudText').textContent =
-        status.baud || '-';
-
-      document.getElementById('startedAt').textContent =
-        status.started_at || '-';
-
-      document.getElementById('lastLine').textContent =
-        status.last_line || 'No line received yet';
-
-      document.getElementById('lastError').textContent =
-        status.last_error ? 'Error: ' + status.last_error : '';
+    function setStatus(text, colour) {
+      const status = document.getElementById("status");
+      status.textContent = text;
+      status.style.color = colour;
     }
 
-    async function loadReadings() {
-      const response = await fetch('/api/readings?limit=100');
-      const readings = await response.json();
+    function setError(message) {
+      document.getElementById("errorMessage").textContent = message || "";
+    }
 
-      const body = document.getElementById('readingsBody');
-      body.innerHTML = '';
+    async function connectSerial() {
+      setError("");
 
-      for (const r of readings) {
-        const tr = document.createElement('tr');
+      try {
+        if (!("serial" in navigator)) {
+          setError("Web Serial is not supported. Please use Google Chrome or Microsoft Edge.");
+          return;
+        }
 
-        tr.innerHTML = `
-          <td>${r.id ?? ''}</td>
-          <td>${r.received_at ?? ''}</td>
-          <td>${r.device_time_ms ?? ''}</td>
-          <td>${r.volume_ml ?? ''}</td>
-          <td>${r.pulses ?? ''}</td>
-          <td>${r.turbidity_raw ?? ''}</td>
-          <td>${r.vout ?? ''}</td>
-          <td>${r.vin ?? ''}</td>
-          <td>${r.status ?? ''}</td>
-        `;
+        port = await navigator.serial.requestPort();
 
-        body.appendChild(tr);
+        await port.open({
+          baudRate: 115200
+        });
+
+        keepReading = true;
+        setStatus("Connected", "#0a7");
+
+        readSerial();
+
+      } catch (error) {
+        setStatus("Not connected", "#c33");
+        setError("Connection error: " + error.message);
       }
     }
 
-    async function refresh() {
-      await loadStatus();
-      await loadReadings();
+    async function readSerial() {
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        reader = port.readable.getReader();
+
+        while (keepReading) {
+          const result = await reader.read();
+
+          if (result.done) {
+            break;
+          }
+
+          if (result.value) {
+            buffer += decoder.decode(result.value, { stream: true });
+
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              processLine(line.trim());
+            }
+          }
+        }
+
+      } catch (error) {
+        if (keepReading) {
+          setError("Read error: " + error.message);
+        }
+
+      } finally {
+        if (reader) {
+          try {
+            reader.releaseLock();
+          } catch (e) {}
+        }
+      }
     }
 
-    refresh();
-    setInterval(refresh, 2000);
+    function processLine(line) {
+      if (!line) {
+        return;
+      }
+
+      document.getElementById("lastLine").textContent = line;
+
+      // Ignore startup/debug messages
+      if (!line.includes(",")) {
+        return;
+      }
+
+      // Ignore CSV header lines
+      if (line.toLowerCase().startsWith("time_ms")) {
+        return;
+      }
+
+      if (line.toLowerCase().startsWith("volume_ml")) {
+        return;
+      }
+
+      const parts = line.split(",").map(p => p.trim());
+
+      let volume;
+      let pulses;
+      let raw;
+      let vout;
+      let vin;
+      let clarity;
+
+      // Arduino format without millis:
+      // volume_ml,pulses,turbidity_raw,vout,vin,status
+      if (parts.length >= 6 && parts.length < 7) {
+        volume = parts[0];
+        pulses = parts[1];
+        raw = parts[2];
+        vout = parts[3];
+        vin = parts[4];
+        clarity = parts[5];
+      }
+
+      // Arduino format with millis:
+      // time_ms,volume_ml,pulses,turbidity_raw,vout,vin,status
+      else if (parts.length >= 7) {
+        volume = parts[1];
+        pulses = parts[2];
+        raw = parts[3];
+        vout = parts[4];
+        vin = parts[5];
+        clarity = parts[6];
+      }
+
+      else {
+        return;
+      }
+
+      const timestamp = new Date().toLocaleString();
+
+      csvRows.push([
+        timestamp,
+        volume,
+        pulses,
+        raw,
+        vout,
+        vin,
+        clarity
+      ]);
+
+      addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity);
+
+      document.getElementById("count").textContent = csvRows.length - 1;
+    }
+
+    function addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity) {
+      const tableBody = document.getElementById("tableBody");
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td>${timestamp}</td>
+        <td>${volume}</td>
+        <td>${pulses}</td>
+        <td>${raw}</td>
+        <td>${vout}</td>
+        <td>${vin}</td>
+        <td>${clarity}</td>
+      `;
+
+      tableBody.prepend(tr);
+    }
+
+    async function disconnectSerial() {
+      keepReading = false;
+      setError("");
+
+      try {
+        if (reader) {
+          await reader.cancel();
+        }
+
+        if (port) {
+          await port.close();
+        }
+
+        setStatus("Disconnected", "#c33");
+
+      } catch (error) {
+        setError("Disconnect error: " + error.message);
+      }
+    }
+
+    function downloadCSV() {
+      const csvContent = csvRows
+        .map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(","))
+        .join("\n");
+
+      const blob = new Blob([csvContent], {
+        type: "text/csv;charset=utf-8;"
+      });
+
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "urine_readings.csv";
+      a.click();
+
+      URL.revokeObjectURL(url);
+    }
+
+    function clearTable() {
+      if (!confirm("Clear all readings from the table?")) {
+        return;
+      }
+
+      csvRows = [
+        ["timestamp", "volume_ml", "pulses", "turbidity_raw", "vout", "vin", "status"]
+      ];
+
+      document.getElementById("tableBody").innerHTML = "";
+      document.getElementById("count").textContent = "0";
+      document.getElementById("lastLine").textContent = "Waiting...";
+    }
   </script>
 </body>
 </html>
