@@ -138,6 +138,7 @@
     let port = null;
     let reader = null;
     let keepReading = false;
+    let lastSensorData = "";
 
     let csvRows = [
       ["timestamp", "volume_ml", "pulses", "turbidity_raw", "vout", "vin", "status"]
@@ -241,6 +242,15 @@
       }
 
       const parts = line.split(",").map(p => p.trim());
+
+      // Save only when sensor data changes
+      const currentSensorData = parts.join(",");
+
+      if (currentSensorData === lastSensorData) {
+        return;
+      }
+
+      lastSensorData = currentSensorData;
 
       let volume;
       let pulses;
