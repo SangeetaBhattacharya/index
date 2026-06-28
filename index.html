@@ -150,11 +150,12 @@
     let port = null;
     let reader = null;
     let keepReading = false;
+     let lastSavedMainData = "";
     let lastSavedVolume = "";
     let lastSavedPulses = "";
     let lastSavedStatus = "";
     let lastSavedRaw = "";
-    let rawTolerance = 5;   // ignore small turbidity raw changes
+    let rawTolerance = 10;   // ignore small turbidity raw changes
     let lastSensorData = "";
 
     let csvRows = [
@@ -237,109 +238,106 @@
       }
     }
 
-    function processLine(line) {
-      if (!line) {
-        return;
-      }
+function processLine(line) {
+  if (!line) {
+    return;
+  }
 
-      document.getElementById("lastLine").textContent = line;
+  document.getElementById("lastLine").textContent = line;
 
-      // Ignore startup/debug messages
-      if (!line.includes(",")) {
-        return;
-      }
+  // Ignore startup/debug messages
+  if (!line.includes(",")) {
+    return;
+  }
 
-      // Ignore CSV header lines
-      if (line.toLowerCase().startsWith("time_ms")) {
-        return;
-      }
+  // Ignore CSV header lines
+  if (line.toLowerCase().startsWith("time_ms")) {
+    return;
+  }
 
-      if (line.toLowerCase().startsWith("volume_ml")) {
-        return;
-      }
+  if (line.toLowerCase().startsWith("volume_ml")) {
+    return;
+  }
 
-      const parts = line.split(",").map(p => p.trim());
+  const parts = line.split(",").map(p => p.trim());
 
-      // Save only when sensor data changes
-      const currentSensorData = parts.join(",");
+  let volume;
+  let pulses;
+  let raw;
+  let vout;
+  let vin;
+  let clarity;
 
-      if (currentSensorData === lastSensorData) {
-        return;
-      }
+  // Format without millis:
+  // volume_ml,pulses,turbidity_raw,vout,vin,status
+  if (parts.length >= 6 && parts.length < 7) {
+    volume = parts[0];
+    pulses = parts[1];
+    raw = parts[2];
+    vout = parts[3];
+    vin = parts[4];
+    clarity = parts[5];
+  }
 
-      lastSensorData = currentSensorData;
+  // Format with millis:
+  // time_ms,volume_ml,pulses,turbidity_raw,vout,vin,status
+  else if (parts.length >= 7) {
+    volume = parts[1];
+    pulses = parts[2];
+    raw = parts[3];
+    vout = parts[4];
+    vin = parts[5];
+    clarity = parts[6];
+  }
 
-      let volume;
-      let pulses;
-      let raw;
-      let vout;
-      let vin;
-      let clarity;
+  else {
+    return;
+  }
 
-      // Arduino format without millis:
-      // volume_ml,pulses,turbidity_raw,vout,vin,status
-      if (parts.length >= 6 && parts.length < 7) {
-        volume = parts[0];
-        pulses = parts[1];
-        raw = parts[2];
-        vout = parts[3];
-        vin = parts[4];
-        clarity = parts[5];
-      }
+  // -------------------------------
+  // Freeze timestamp unless real data changes
+  // -------------------------------
 
-      // Arduino format with millis:
-      // time_ms,volume_ml,pulses,turbidity_raw,vout,vin,status
-      else if (parts.length >= 7) {
-        volume = parts[1];
-        pulses = parts[2];
-        raw = parts[3];
-        vout = parts[4];
-        vin = parts[5];
-        clarity = parts[6];
-      }
+  const currentRaw = Number(raw);
 
-      else {
-        return;
-      }
+  const currentMainData = volume + "|" + pulses + "|" + clarity;
 
-      // Check if this is really a new sensor reading
-const rawDifference = Math.abs(Number(raw) - Number(lastSavedRaw));
+  const rawDifference =
+    lastSavedRaw === "" ? 999999 : Math.abs(currentRaw - Number(lastSavedRaw));
 
-const sameAsLast =
-  volume === lastSavedVolume &&
-  pulses === lastSavedPulses &&
-  clarity === lastSavedStatus &&
-  rawDifference <= rawTolerance;
+  const sameMainData =
+    currentMainData === lastSavedMainData;
 
-// If only timestamp or small turbidity raw noise changes, do not update table/latest reading
-if (sameAsLast) {
-  return;
+  const smallRawChange =
+    rawDifference <= rawTolerance;
+
+  // If only timestamp changes, or turbidity raw has tiny noise, do not save/update
+  if (sameMainData && smallRawChange) {
+    return;
+  }
+
+  // This is a real new reading, so now create timestamp
+  const timestamp = new Date().toLocaleString();
+
+  lastSavedMainData = currentMainData;
+  lastSavedRaw = raw;
+
+  csvRows.push([
+    timestamp,
+    volume,
+    pulses,
+    raw,
+    vout,
+    vin,
+    clarity
+  ]);
+
+  updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity);
+
+  addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity);
+
+  document.getElementById("count").textContent = csvRows.length - 1;
 }
-
-// New accepted sensor data
-    const timestamp = new Date().toLocaleString();
-    
-    lastSavedVolume = volume;
-    lastSavedPulses = pulses;
-    lastSavedStatus = clarity;
-    lastSavedRaw = raw;
-    
-    csvRows.push([
-      timestamp,
-      volume,
-      pulses,
-      raw,
-      vout,
-      vin,
-      clarity
-    ]);
-    
-    updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity);
-    
-    addTableRow(timestamp, volume, pulses, raw, vout, vin, clarity);
-    
-    document.getElementById("count").textContent = csvRows.length - 1;
-    }
 
     function updateLatestReading(timestamp, volume, pulses, raw, vout, vin, clarity) {
       document.getElementById("latestTimestamp").textContent = timestamp;
@@ -419,6 +417,8 @@ if (sameAsLast) {
       document.getElementById("tableBody").innerHTML = "";
       document.getElementById("count").textContent = "0";
       document.getElementById("lastLine").textContent = "Waiting...";
+      lastSavedMainData = "";
+lastSavedRaw = "";
     }
   </script>
 </body>
